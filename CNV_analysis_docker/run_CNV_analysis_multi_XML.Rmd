@@ -1,0 +1,276 @@
+---
+title: "CNV_analisis_pipeline_multi_XML"
+author: "Elisa Balmas PhD"
+date: "2026-09-10"
+output: html_document
+---
+
+<!--
+Questo Rmd e' la versione "multi-XML" di test_CNV.Rmd: da usare quando
+un'analisi comprende PIU' di un export XML da GenomeStudio (es. piu' chip/
+batch analizzati insieme), che vanno combinati in un'unica coppia di file
+extracted/filtered prima di proseguire con la pipeline.
+
+Per un'analisi su un SOLO xml continua a usare test_CNV.Rmd, invariato.
+
+Differenze rispetto a test_CNV.Rmd:
+  - chunk "run cnv filtering script": usa il nuovo script
+    001_karyotype_cnv_filtering_multi_xml.R al posto di
+    001_karyotpe_cnv_filtering.R -- accetta piu' file XML (--xml=...) e
+    produce UNA coppia combinata di CSV (combined_extracted_data.csv /
+    combined_filtered_data.csv), con una colonna source_xml che registra da
+    quale XML proviene ogni riga.
+  - chunk "build sample metadata": usa 002_build_CNV_sample_metadata.R
+    SENZA modifiche -- questo script accetta gia' piu' samplesheet come
+    argomenti posizionali (li unisce automaticamente), quindi basta trovarli
+    tutti in scratch/input_files e passarli tutti, invece di pretendere
+    esattamente un solo samplesheet come fa test_CNV.Rmd.
+  - chunk "final filer and reanalysis": usa 003_karyotype_cnv_filtering_...R
+    SENZA modifiche -- lavora sugli stessi tipi di file (extracted/filtered/
+    metadata), che siano il risultato di un solo XML o di piu' XML combinati
+    non fa differenza per questo script.
+  - chunk "final graphs": stessa selezione campioni (sample_selection) vista
+    in test_CNV.Rmd, per scegliere quali sample_id/sample_name mostrare nei
+    due grafici finali.
+-->
+
+###setup folders and output paths
+
+```{r}
+
+fname_prefix_output <- file.path(getwd(), "Output", format(Sys.Date(), "%y%m%d"))
+dir.create(fname_prefix_output, recursive = TRUE, showWarnings = FALSE)
+```
+
+#run cnv filtering script (multi-XML)
+
+```{r}
+
+# Elenca QUI tutti gli XML di questa analisi (uno per riga). I path possono
+# contenere spazi (es. cartelle "Shared drives" di Google Drive): non serve
+# fare nulla di speciale, ci pensa shQuote() piu' sotto.
+xml_files <- c(
+  paste0(getwd(), "/scratch/input_files/EB1.xml"),
+  paste0(getwd(), "/scratch/input_files/EB2.xml")
+  # , paste0(getwd(), "/scratch/input_files/EB3.xml")   # aggiungi altre righe se servono
+)
+
+comment_threshold <- 75
+hotspot_size_threshold <- 100000
+non_hotspot_size_threshold <- 350000
+
+# Prefisso condiviso dei due CSV combinati prodotti da questo step:
+# <combined_name>_extracted_data.csv e <combined_name>_filtered_data.csv.
+# Cambialo (es. "batch1_batch2") se in output_dir tieni piu' run multi-XML e
+# vuoi distinguerli; il default "combined" va bene per il caso comune di un
+# solo run multi-XML per cartella di output.
+combined_name <- "combined"
+
+# I due CSV combinati prodotti da questo script devono stare in
+# scratch/input_files, perche' sono gli input dello script successivo della
+# pipeline (esattamente come in test_CNV.Rmd per il caso a un solo XML).
+
+output_dir <- fname_prefix_output
+
+script_path <- paste0(getwd(),"/script/001_karyotype_cnv_filtering_multi_xml.R")
+
+xml_flag <- paste0("--xml=", paste(xml_files, collapse = ","))
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(xml_flag),
+                      shQuote(paste0("--comment_threshold=", comment_threshold)),
+                      shQuote(paste0("--hotspot_size_threshold=", hotspot_size_threshold)),
+                      shQuote(paste0("--non_hotspot_size_threshold=", non_hotspot_size_threshold)),
+                      shQuote(paste0("--output_dir=", output_dir)),
+                      shQuote(paste0("--combined_name=", combined_name))))
+
+extracted_name <- paste0(combined_name, "_extracted_data.csv")
+filtered_name  <- paste0(combined_name, "_filtered_data.csv")
+
+#copy the combined files in the input folder of the scratch folder, so that they can be used as input for the next script in the pipeline
+
+ok1 <- file.copy(from = file.path(output_dir, extracted_name),
+                  to   = file.path(getwd(), "scratch", "input_files", extracted_name),
+                  overwrite = TRUE)
+ok2 <- file.copy(from = file.path(output_dir, filtered_name),
+                  to   = file.path(getwd(), "scratch", "input_files", filtered_name),
+                  overwrite = TRUE)
+if (!ok1 || !ok2) stop("Copia di ", extracted_name, " / ", filtered_name, " in scratch/input_files fallita.")
+
+```
+
+#build sample metadata
+
+```{r}
+
+script_path <- paste0(getwd(),"/script/002_build_CNV_sample_metadata.R")
+
+# 002_build_CNV_sample_metadata.R non e' stato modificato: accetta gia' PIU'
+# di un samplesheet come argomenti posizionali (li unisce automaticamente in
+# un'unica tabella), quindi qui basta trovarli tutti in scratch/input_files e
+# passarli tutti allo script, invece di pretendere che ce ne sia esattamente
+# uno come fa test_CNV.Rmd per il caso a un solo XML.
+samplesheets <- list.files(
+  path = file.path(getwd(), "scratch", "input_files"),
+  pattern = "^samplesheet.*\\.csv$",
+  full.names = TRUE
+)
+if (length(samplesheets) < 1) {
+  stop("Nessun file 'samplesheet*.csv' trovato in scratch/input_files.")
+}
+cat("Samplesheet trovati (", length(samplesheets), "):\n", sep = "")
+cat(paste0("  - ", basename(samplesheets)), sep = "\n")
+
+# --extracted punta all'UNICO extracted combinato prodotto dallo step
+# precedente: la verifica sample_id (forma Sample_ID vs Barcode_Position)
+# viene quindi fatta contro i bookmark di TUTTI gli XML di questa analisi
+# in un colpo solo.
+extracted <- file.path(getwd(), "scratch", "input_files", extracted_name)
+
+output_metadata <- paste0(output_dir, "/CNV_sample_metadata.csv")
+
+move_metadata <- paste0(getwd(), "/scratch/input_files/CNV_sample_metadata.csv")
+
+# --- Linea cellulare -----------------------------------------------------
+# Caso 1: stessa linea per tutti i campioni -> valore singolo, senza nomi:
+cell_line <- "WTC11 hiPSC"
+
+# Caso 2: linee diverse per campione -> vettore CON NOMI, dove il nome e'
+# il Sample_ID (deve combaciare esattamente con quello nel samplesheet) e
+# "default" copre tutti i campioni non elencati esplicitamente:
+# cell_line <- c(
+#   IT16GSAUTUD100025 = "WTC11 hiPSC",
+#   IT97GSAUTUD100022 = "iPSC_1",
+#   default            = "WTC11 hiPSC"
+# )
+
+build_cell_line_flag <- function(cell_line) {
+  if (is.null(names(cell_line))) {
+    paste0("--cell_line=", cell_line[1])
+  } else {
+    paste0("--cell_line=", paste(paste0(names(cell_line), "=", cell_line), collapse = ","))
+  }
+}
+cell_line_flag <- build_cell_line_flag(cell_line)
+
+extracted_flag <- paste0("--extracted=", extracted)
+
+# NOTE IMPORTANTE: come in test_CNV.Rmd, cell_line_flag va SEMPRE costruito e
+# passato esplicitamente -- il prompt interattivo dello script non e'
+# raggiungibile quando Rscript viene lanciato da system2().
+# shQuote(samplesheets) e' vettorizzato: produce un argomento CLI separato
+# per ciascun samplesheet trovato, esattamente come si aspetta lo script.
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(samplesheets),
+                      shQuote(output_metadata),
+                      shQuote(cell_line_flag),
+                      shQuote(extracted_flag)))
+
+ok3 <- file.copy(from = file.path(output_dir, "CNV_sample_metadata.csv"),
+                  to   = move_metadata,
+                  overwrite = TRUE)
+if (!ok3) stop("Copia di CNV_sample_metadata.csv in scratch/input_files fallita.")
+
+```
+
+###final filer and reanalysis
+
+```{r}
+script_path <- paste0(getwd(),"/script/003_karyotype_cnv_filtering_GRCh37_conf75_validated_chrX2filtered.R")
+
+# I 3 input di questo step sono le copie "fresche" appena scritte in
+# scratch/input_files dai due chunk precedenti -- gli stessi due CSV combinati
+# fanno sia da extracted_input che da historical_input, esattamente come nel
+# flusso a un solo XML (EB_extracted_data.csv / EB_filtered_data.csv).
+extracted_input  <- file.path(getwd(), "scratch", "input_files", extracted_name)
+historical_input <- file.path(getwd(), "scratch", "input_files", filtered_name)
+metadata_input   <- file.path(getwd(), "scratch", "input_files", "CNV_sample_metadata.csv")
+
+move_data1 <- paste0(getwd(),"/scratch/input_files/cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv")
+move_data2 <- paste0(getwd(),"/scratch/input_files/cnvPartition_3.2.0_hotspot_reference_GRCh37.csv")
+
+# Le soglie di filtro e il genome build NON sono hardcoded nello script: si
+# passano da qui come argomenti, cosi' restano modificabili run per run senza
+# toccare il file .R.
+confidence_threshold     <- 75
+hotspot_size_threshold   <- 100000
+standard_size_threshold  <- 350000
+
+# ATTENZIONE sul genome build: vedi la stessa nota in test_CNV.Rmd -- la
+# tabella delle 20 hotspot regions dentro lo script e' scritta in coordinate
+# GRCh37, quindi lo script si ferma con un errore esplicito per qualunque
+# valore diverso da "GRCh37".
+genome_build <- "GRCh37"
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(extracted_input),
+                      shQuote(historical_input),
+                      shQuote(metadata_input),
+                      shQuote(output_dir),
+                      confidence_threshold,
+                      hotspot_size_threshold,
+                      standard_size_threshold,
+                      shQuote(genome_build)))
+
+ok4 <- file.copy(from = file.path(output_dir, "cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv"),
+                  to   = move_data1,
+                  overwrite = TRUE)
+if (!ok4) stop("Copia di cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv in scratch/input_files fallita.")
+
+ok5 <- file.copy(from = file.path(output_dir, "cnvPartition_3.2.0_hotspot_reference_GRCh37.csv"),
+                  to   = move_data2,
+                  overwrite = TRUE)
+if (!ok5) stop("Copia di cnvPartition_3.2.0_hotspot_reference_GRCh37.csv in scratch/input_files fallita.")
+
+```
+
+
+#final graphs
+
+```{r}
+
+script_path <- paste0(getwd(),"/script/004_plot_CNV_karyotype_from_filtered_GRCh37.R")
+
+filtered_input  <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv")
+
+output_pdf <- file.path(output_dir, "/CNV_karyotype_plot.pdf")
+
+# --- Selezione campioni da visualizzare nei grafici -----------------------
+# Lascia vuoto ("") per mostrare TUTTI i campioni presenti nel CSV filtrato
+# combinato (comportamento di default, invariato). Per mostrarne solo alcuni,
+# elenca i sample_id e/o sample_name separati da virgola (si possono
+# mischiare i due tipi, ognuno viene cercato in entrambe le colonne):
+#   sample_selection <- "W1.6,K1.7"
+# In alternativa si puo' passare il path di un file di testo con un valore
+# per riga. Se un valore non corrisponde a nessun campione, lo script si
+# ferma con un errore che elenca i sample_id/sample_name disponibili, cosi'
+# un refuso non produce un grafico sbagliato/vuoto senza accorgersene.
+sample_selection <- ""
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(output_pdf),
+                      shQuote(sample_selection)))
+
+
+#final graph with hotspots
+
+
+script_path <- paste0(getwd(),"/script/005_plot_CNV_karyotype_with_hotspots_GRCh37.R")
+
+# Prodotto dallo script 3 nello stesso output_dir: le 20 regioni hotspot GRCh37
+# usate per la classificazione, riesportate come tabella di riferimento.
+hotspot_reference_input <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_hotspot_reference_GRCh37.csv")
+
+output_pdf_hotspots <- file.path(output_dir, "/CNV_karyotype_plot_with_hotspots.pdf")
+
+# Stessa selezione campioni del grafico precedente (le bande hotspot restano
+# sempre disegnate per intero, indipendentemente da quali campioni sono
+# mostrati: sono regioni di riferimento, non legate a un campione specifico).
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(hotspot_reference_input),
+                      shQuote(output_pdf_hotspots),
+                      shQuote(sample_selection)))
+
+```

@@ -1,0 +1,223 @@
+---
+title: "CNV_analisis_pipeline"
+author: "Elisa Balmas PhD"
+date: "2026-09-09"
+output: html_document
+---
+###setup folders and output paths
+
+```{r}
+
+fname_prefix_output <- file.path(getwd(), "Output", format(Sys.Date(), "%y%m%d"))
+dir.create(fname_prefix_output, recursive = TRUE, showWarnings = FALSE)
+```
+
+#run cnv filtering script
+
+```{r}
+
+
+xml_filename <- paste0(getwd(),"/scratch/input_files/EB.xml")
+
+comment_threshold <- 75
+hotspot_size_threshold <- 100000
+non_hotspot_size_threshold <- 350000
+
+# I due CSV prodotti da questo script (extracted_data e filtered_data) devono
+# stare in scratch/input_files, perche' sono gli input dello script successivo
+# della pipeline.
+
+output_dir <- fname_prefix_output
+
+script_path <- paste0(getwd(),"/script/001_karyotpe_cnv_filtering.R")
+
+system2("Rscript", c(shQuote(script_path), shQuote(xml_filename),
+                      comment_threshold, hotspot_size_threshold,
+                      non_hotspot_size_threshold, shQuote(output_dir)))
+
+#copy the files in the input folder of the scratch folder, so that they can be used as input for the next script in the pipeline
+
+#change EB suffix with the suffix of the xml file
+
+ok1 <- file.copy(from = file.path(output_dir, "EB_extracted_data.csv"),
+                  to   = file.path(getwd(), "scratch", "input_files", "EB_extracted_data.csv"),
+                  overwrite = TRUE)
+ok2 <- file.copy(from = file.path(output_dir, "EB_filtered_data.csv"),
+                  to   = file.path(getwd(), "scratch", "input_files", "EB_filtered_data.csv"),
+                  overwrite = TRUE)
+if (!ok1 || !ok2) stop("Copia di EB_extracted_data.csv / EB_filtered_data.csv in scratch/input_files fallita.")
+
+```
+
+#build sample metadata
+
+```{r}
+
+script_path <- paste0(getwd(),"/script/002_build_CNV_sample_metadata.R")
+
+# Trova il samplesheet automaticamente dentro scratch/input_files, cosi' non
+# serve scrivere a mano il nome esatto del file.
+samplesheet <- list.files(
+  path = file.path(getwd(), "scratch", "input_files"),
+  pattern = "^samplesheet.*\\.csv$",
+  full.names = TRUE
+)
+if (length(samplesheet) != 1) {
+  stop("Atteso esattamente un file 'samplesheet*.csv' in scratch/input_files, trovati: ",
+       length(samplesheet))
+}
+
+extracted <- paste0(getwd(),"/scratch/input_files/EB_extracted_data.csv")
+
+output_metadata <- paste0(output_dir,"/CNV_sample_metadata.csv")
+
+move_metadata <- paste0(getwd(),"/scratch/input_files/CNV_sample_metadata.csv")
+
+# --- Linea cellulare -----------------------------------------------------
+# Caso 1: stessa linea per tutti i campioni -> valore singolo, senza nomi:
+cell_line <- "WTC11 hiPSC"
+
+# Caso 2: linee diverse per campione -> vettore CON NOMI, dove il nome e'
+# il Sample_ID (deve combaciare esattamente con quello nel samplesheet) e
+# "default" copre tutti i campioni non elencati esplicitamente:
+# cell_line <- c(
+#   IT16GSAUTUD100025 = "WTC11 hiPSC",
+#   IT97GSAUTUD100022 = "iPSC_1",
+#   default            = "WTC11 hiPSC"
+# )
+
+# Costruisce automaticamente la stringa --cell_line=... nel formato che lo
+# script si aspetta, sia per il caso 1 che per il caso 2 -- non serve
+# scriverla a mano.
+build_cell_line_flag <- function(cell_line) {
+  if (is.null(names(cell_line))) {
+    paste0("--cell_line=", cell_line[1])
+  } else {
+    paste0("--cell_line=", paste(paste0(names(cell_line), "=", cell_line), collapse = ","))
+  }
+}
+cell_line_flag <- build_cell_line_flag(cell_line)
+
+extracted_flag <- paste0("--extracted=", extracted)
+
+# NOTE IMPORTANTE: qui NON si puo' usare il prompt interattivo dello script
+# (quello che chiede "Cell line:" quando --cell_line non e' passato) --
+# quando Rscript viene lanciato da system2(), il suo stdin non e' collegato
+# alla console di RStudio, quindi qualunque cosa scrivi al prompt non arriva
+# mai al processo e resta bloccato per sempre. Per questo cell_line_flag va
+# SEMPRE costruito e passato esplicitamente come sopra, mai lasciato vuoto.
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(samplesheet),
+                      shQuote(output_metadata),
+                      shQuote(cell_line_flag),
+                      shQuote(extracted_flag)))
+
+ok3 <- file.copy(from = file.path(output_dir, "CNV_sample_metadata.csv"),
+                  to   = move_metadata,
+                  overwrite = TRUE)
+if (!ok3) stop("Copia di CNV_sample_metadata.csv in scratch/input_files fallita.")
+
+```
+
+###final filer and reanalysis
+
+```{r}
+script_path <- paste0(getwd(),"/script/003_karyotype_cnv_filtering_GRCh37_conf75_validated_chrX2filtered.R")
+
+# I 3 input di questo step sono le copie "fresche" appena scritte in
+# scratch/input_files dai due chunk precedenti.
+extracted_input  <- file.path(getwd(), "scratch", "input_files", "EB_extracted_data.csv")
+historical_input <- file.path(getwd(), "scratch", "input_files", "EB_filtered_data.csv")
+metadata_input   <- file.path(getwd(), "scratch", "input_files", "CNV_sample_metadata.csv")
+
+move_data1 <- paste0(getwd(),"/scratch/input_files/cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv")
+move_data2 <- paste0(getwd(),"/scratch/input_files/cnvPartition_3.2.0_hotspot_reference_GRCh37.csv")
+
+
+# Le soglie di filtro e il genome build NON sono piu' hardcoded nello script:
+# si passano da qui come argomenti, cosi' restano modificabili run per run
+# senza toccare il file .R.
+confidence_threshold     <- 75
+hotspot_size_threshold   <- 100000
+standard_size_threshold  <- 350000
+
+# ATTENZIONE sul genome build: la tabella delle 20 hotspot regions dentro lo
+# script e' scritta in coordinate GRCh37 -- cambiare solo questa etichetta
+# senza aggiornare anche quella tabella produrrebbe hotspot sbagliati in modo
+# silenzioso. Per questo lo script si ferma con un errore esplicito se qui
+# metti un valore diverso da "GRCh37": prima andrebbe aggiunta una tabella di
+# coordinate corrispondente al nuovo build all'interno dello script stesso.
+genome_build <- "GRCh37"
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(extracted_input),
+                      shQuote(historical_input),
+                      shQuote(metadata_input),
+                      shQuote(output_dir),
+                      confidence_threshold,
+                      hotspot_size_threshold,
+                      standard_size_threshold,
+                      shQuote(genome_build)))
+
+ok4 <- file.copy(from = file.path(output_dir, "cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv"),
+                  to   = move_data1,
+                  overwrite = TRUE)
+if (!ok4) stop("Copia di cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv in scratch/input_files fallita.")
+
+ok5 <- file.copy(from = file.path(output_dir, "cnvPartition_3.2.0_hotspot_reference_GRCh37.csv"),
+                  to   = move_data2,
+                  overwrite = TRUE)
+if (!ok5) stop("Copia di cnvPartition_3.2.0_hotspot_reference_GRCh37.csv in scratch/input_files fallita.")
+
+```
+
+
+#final graphs
+
+```{r}
+
+script_path <- paste0(getwd(),"/script/004_plot_CNV_karyotype_from_filtered_GRCh37.R")
+
+filtered_input  <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv")
+
+output_pdf <- file.path(output_dir, "/CNV_karyotype_plot.pdf")
+
+# --- Selezione campioni da visualizzare nei grafici -----------------------
+# Lascia vuoto ("") per mostrare TUTTI i campioni presenti nel CSV filtrato
+# (comportamento di prima, invariato). Per mostrarne solo alcuni, elenca i
+# sample_id e/o sample_name separati da virgola (si possono mischiare i due
+# tipi, ognuno viene cercato in entrambe le colonne):
+#   sample_selection <- "W1.6,K1.7"
+# In alternativa si puo' passare il path di un file di testo con un valore
+# per riga. Se un valore non corrisponde a nessun campione, lo script si
+# ferma con un errore che elenca i sample_id/sample_name disponibili, cosi'
+# un refuso non produce un grafico sbagliato/vuoto senza accorgersene.
+
+sample_selection <- ""
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(output_pdf),
+                      shQuote(sample_selection)))
+
+
+#final graph with hotspots
+
+
+script_path <- paste0(getwd(),"/script/005_plot_CNV_karyotype_with_hotspots_GRCh37.R")
+
+# Prodotto dallo script 3 nello stesso output_dir: le 20 regioni hotspot GRCh37
+# usate per la classificazione, riesportate come tabella di riferimento.
+hotspot_reference_input <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_hotspot_reference_GRCh37.csv")
+
+output_pdf_hotspots <- file.path(output_dir, "/CNV_karyotype_plot_with_hotspots.pdf")
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(hotspot_reference_input),
+                      shQuote(output_pdf_hotspots),
+                      shQuote(sample_selection)))
+
+```
+
+```
