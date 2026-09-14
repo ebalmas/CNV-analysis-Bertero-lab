@@ -21,3 +21,26 @@ CNV_ROOT
 CNV_ROOT=/path/to/your/experiment_folder
 ```
 Note: CNV_ROOT must point to your experiment folder.
+
+---
+
+## 2. Add the GenomeStudio startup script
+
+Place the GenomeStudio startup script inside the experiment folder:
+- **start-genomestudio.sh for macOS / Linux
+- **start-genomestudio.bat for Windows
+This script is used to start the GenomeStudio Docker container.
+
+---
+
+## 3. Create the input folder structure
+Inside the experiment folder, create:
+
+scratch/
+└── input_files/
+    └── genomestudio/
+
+The scratch folder will be mounted inside the Docker containers.
+Place the files required by GenomeStudio inside:
+
+scratch/input_files/genomestudio/
