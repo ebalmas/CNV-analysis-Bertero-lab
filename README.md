@@ -193,7 +193,7 @@ docker run -d --rm \
   -e PASSWORD='test-password' \
   -v "$CNV_ROOT/Output:/home/rstudio/project/Output" \
   -v "$CNV_ROOT/scratch:/home/rstudio/project/scratch" \
-  hedgelab/cnv-rstudio:2.0
+  hedgelab/cnv-rstudio:2.1
 ```
 
 RStudio Server will be available at:
