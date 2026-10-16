@@ -50,9 +50,10 @@ dir.create(fname_prefix_output, recursive = TRUE, showWarnings = FALSE)
 # contenere spazi (es. cartelle "Shared drives" di Google Drive): non serve
 # fare nulla di speciale, ci pensa shQuote() piu' sotto.
 xml_files <- c(
-  paste0(getwd(), "/scratch/input_files/EB1.xml"),
-  paste0(getwd(), "/scratch/input_files/EB2.xml")
-  # , paste0(getwd(), "/scratch/input_files/EB3.xml")   # aggiungi altre righe se servono
+  paste0(getwd(), "/scratch/input_files/Geralt_all.xml"),
+  paste0(getwd(), "/scratch/input_files/epato_cl22_optiox.xml")
+  , paste0(getwd(), "/scratch/input_files/NGN2_Cl24.xml")
+  , paste0(getwd(), "/scratch/input_files/NGN2_EPATO.xml") # aggiungi altre righe se servono
 )
 
 comment_threshold <- 75
@@ -133,16 +134,25 @@ move_metadata <- paste0(getwd(), "/scratch/input_files/CNV_sample_metadata.csv")
 
 # --- Linea cellulare -----------------------------------------------------
 # Caso 1: stessa linea per tutti i campioni -> valore singolo, senza nomi:
-cell_line <- "WTC11 hiPSC"
+#cell_line <- "WTC11 hiPSC"
 
 # Caso 2: linee diverse per campione -> vettore CON NOMI, dove il nome e'
 # il Sample_ID (deve combaciare esattamente con quello nel samplesheet) e
 # "default" copre tutti i campioni non elencati esplicitamente:
-# cell_line <- c(
-#   IT16GSAUTUD100025 = "WTC11 hiPSC",
-#   IT97GSAUTUD100022 = "iPSC_1",
-#   default            = "WTC11 hiPSC"
-# )
+cell_line <- c(
+  IT97GSAUTUD100022 = "ETN2MRN-UTR",               # cl5
+  IT70GSAUTUD100023 = "ETN2MRN-BID",               # cl8
+  IT43GSAUTUD100024 = "ETN2MRN-INT / GERALT MYOD1", # cl14
+  IT16GSAUTUD100025 = "wt cells",                  # WTC11
+  IT34GSAUTUD100089 = "ETM / OPTi-OX MYOD1",        # AR_OptiOX_cl.3.8
+  IT07GSAUTUD100090 = "GERALT HFHR",               # FA hGERALT_hep 6.22
+  IT77GSAUTUD100091 = "GERALT NGN2",               # cSB_NGN2_24
+  IT12GSAUTUD100097 = "GERALT HFHR",               # cFA006.10
+  IT82GSAUTUD100098 = "GERALT HFHR",               # cFA006.18
+  IT55GSAUTUD100099 = "GERALT NGN2",               # cSB_NGN2_10
+  IT28GSAUTUD100100 = "GERALT NGN2",               # cSB_NGN2_18
+  default = "not recorded"
+)
 
 build_cell_line_flag <- function(cell_line) {
   if (is.null(names(cell_line))) {
@@ -245,7 +255,28 @@ output_pdf <- file.path(output_dir, "/CNV_karyotype_plot.pdf")
 # per riga. Se un valore non corrisponde a nessun campione, lo script si
 # ferma con un errore che elenca i sample_id/sample_name disponibili, cosi'
 # un refuso non produce un grafico sbagliato/vuoto senza accorgersene.
-sample_selection <- ""
+metadata_plot <- read.csv2(
+  file.path(getwd(), "scratch", "input_files",
+            "CNV_sample_metadata.csv"),
+  stringsAsFactors = FALSE
+)
+
+# Usa i Sample_ID del vettore cell_line creato sopra
+#NB. se vuoi degli ID diversi ne puoi usare altri e selezionarli
+selected_ids <- setdiff(names(cell_line), "default")
+
+stopifnot(
+  length(selected_ids) > 0,
+  all(selected_ids %in% metadata_plot$Sample_ID)
+)
+
+# Recupera gli identificativi esatti presenti nell'XML
+sample_selection <- paste(
+  unique(metadata_plot$sample_id[
+    metadata_plot$Sample_ID %in% selected_ids
+  ]),
+  collapse = ","
+)
 
 system2("Rscript", c(shQuote(script_path),
                       shQuote(filtered_input),
@@ -263,6 +294,242 @@ script_path <- paste0(getwd(),"/script/005_plot_CNV_karyotype_with_hotspots_GRCh
 hotspot_reference_input <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_hotspot_reference_GRCh37.csv")
 
 output_pdf_hotspots <- file.path(output_dir, "/CNV_karyotype_plot_with_hotspots.pdf")
+
+# Stessa selezione campioni del grafico precedente (le bande hotspot restano
+# sempre disegnate per intero, indipendentemente da quali campioni sono
+# mostrati: sono regioni di riferimento, non legate a un campione specifico).
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(hotspot_reference_input),
+                      shQuote(output_pdf_hotspots),
+                      shQuote(sample_selection)))
+
+```
+#make figure lists
+```{r}
+ED4f <- c(
+  IT97GSAUTUD100022 = "ETN2MRN-UTR",               # cl5
+  IT70GSAUTUD100023 = "ETN2MRN-BID",               # cl8
+  IT43GSAUTUD100024 = "ETN2MRN-INT / GERALT MYOD1", # cl14
+  IT16GSAUTUD100025 = "wt cells",                  # WTC11
+  default = "not recorded"
+)
+
+ED6d <- c(
+  IT16GSAUTUD100025 = "wt cells",                  # WTC11
+  IT77GSAUTUD100091 = "GERALT NGN2",               # cSB_NGN2_24
+  IT55GSAUTUD100099 = "GERALT NGN2",               # cSB_NGN2_10
+  IT28GSAUTUD100100 = "GERALT NGN2",               # cSB_NGN2_18
+  default = "not recorded"
+)
+
+ED7d <- c(
+  IT16GSAUTUD100025 = "wt cells",                  # WTC11
+  IT07GSAUTUD100090 = "GERALT HFHR",               # FA hGERALT_hep 6.22
+  IT12GSAUTUD100097 = "GERALT HFHR",               # cFA006.10
+  IT82GSAUTUD100098 = "GERALT HFHR",               # cFA006.18
+  default = "not recorded"
+)
+```
+
+#make different figures
+#ED4f
+```{r}
+
+script_path <- paste0(getwd(),"/script/004_plot_CNV_karyotype_from_filtered_GRCh37.R")
+
+filtered_input  <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv")
+
+output_pdf <- file.path(output_dir, "/CNV_ED4f_karyotype_plot.pdf")
+
+# --- Selezione campioni da visualizzare nei grafici -----------------------
+# Lascia vuoto ("") per mostrare TUTTI i campioni presenti nel CSV filtrato
+# combinato (comportamento di default, invariato). Per mostrarne solo alcuni,
+# elenca i sample_id e/o sample_name separati da virgola (si possono
+# mischiare i due tipi, ognuno viene cercato in entrambe le colonne):
+#   sample_selection <- "W1.6,K1.7"
+# In alternativa si puo' passare il path di un file di testo con un valore
+# per riga. Se un valore non corrisponde a nessun campione, lo script si
+# ferma con un errore che elenca i sample_id/sample_name disponibili, cosi'
+# un refuso non produce un grafico sbagliato/vuoto senza accorgersene.
+metadata_plot <- read.csv2(
+  file.path(getwd(), "scratch", "input_files",
+            "CNV_sample_metadata.csv"),
+  stringsAsFactors = FALSE
+)
+
+# Usa i Sample_ID del vettore cell_line creato sopra
+#NB. se vuoi degli ID diversi ne puoi usare altri e selezionarli
+selected_ids <- setdiff(names(ED4f), "default")
+
+stopifnot(
+  length(selected_ids) > 0,
+  all(selected_ids %in% metadata_plot$Sample_ID)
+)
+
+# Recupera gli identificativi esatti presenti nell'XML
+sample_selection <- paste(
+  unique(metadata_plot$sample_id[
+    metadata_plot$Sample_ID %in% selected_ids
+  ]),
+  collapse = ","
+)
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(output_pdf),
+                      shQuote(sample_selection)))
+
+
+#final graph with hotspots
+
+
+script_path <- paste0(getwd(),"/script/005_plot_CNV_karyotype_with_hotspots_GRCh37.R")
+
+# Prodotto dallo script 3 nello stesso output_dir: le 20 regioni hotspot GRCh37
+# usate per la classificazione, riesportate come tabella di riferimento.
+hotspot_reference_input <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_hotspot_reference_GRCh37.csv")
+
+output_pdf_hotspots <- file.path(output_dir, "/CNV_ED4f_karyotype_plot_with_hotspots.pdf")
+
+# Stessa selezione campioni del grafico precedente (le bande hotspot restano
+# sempre disegnate per intero, indipendentemente da quali campioni sono
+# mostrati: sono regioni di riferimento, non legate a un campione specifico).
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(hotspot_reference_input),
+                      shQuote(output_pdf_hotspots),
+                      shQuote(sample_selection)))
+
+```
+#ED6d
+```{r}
+
+script_path <- paste0(getwd(),"/script/004_plot_CNV_karyotype_from_filtered_GRCh37.R")
+
+filtered_input  <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv")
+
+output_pdf <- file.path(output_dir, "/CNV_ED6d_karyotype_plot.pdf")
+
+# --- Selezione campioni da visualizzare nei grafici -----------------------
+# Lascia vuoto ("") per mostrare TUTTI i campioni presenti nel CSV filtrato
+# combinato (comportamento di default, invariato). Per mostrarne solo alcuni,
+# elenca i sample_id e/o sample_name separati da virgola (si possono
+# mischiare i due tipi, ognuno viene cercato in entrambe le colonne):
+#   sample_selection <- "W1.6,K1.7"
+# In alternativa si puo' passare il path di un file di testo con un valore
+# per riga. Se un valore non corrisponde a nessun campione, lo script si
+# ferma con un errore che elenca i sample_id/sample_name disponibili, cosi'
+# un refuso non produce un grafico sbagliato/vuoto senza accorgersene.
+metadata_plot <- read.csv2(
+  file.path(getwd(), "scratch", "input_files",
+            "CNV_sample_metadata.csv"),
+  stringsAsFactors = FALSE
+)
+
+# Usa i Sample_ID del vettore cell_line creato sopra
+#NB. se vuoi degli ID diversi ne puoi usare altri e selezionarli
+selected_ids <- setdiff(names(ED6d), "default")
+
+stopifnot(
+  length(selected_ids) > 0,
+  all(selected_ids %in% metadata_plot$Sample_ID)
+)
+
+# Recupera gli identificativi esatti presenti nell'XML
+sample_selection <- paste(
+  unique(metadata_plot$sample_id[
+    metadata_plot$Sample_ID %in% selected_ids
+  ]),
+  collapse = ","
+)
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(output_pdf),
+                      shQuote(sample_selection)))
+
+
+#final graph with hotspots
+
+
+script_path <- paste0(getwd(),"/script/005_plot_CNV_karyotype_with_hotspots_GRCh37.R")
+
+# Prodotto dallo script 3 nello stesso output_dir: le 20 regioni hotspot GRCh37
+# usate per la classificazione, riesportate come tabella di riferimento.
+hotspot_reference_input <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_hotspot_reference_GRCh37.csv")
+
+output_pdf_hotspots <- file.path(output_dir, "/CNV_ED6d_karyotype_plot_with_hotspots.pdf")
+
+# Stessa selezione campioni del grafico precedente (le bande hotspot restano
+# sempre disegnate per intero, indipendentemente da quali campioni sono
+# mostrati: sono regioni di riferimento, non legate a un campione specifico).
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(hotspot_reference_input),
+                      shQuote(output_pdf_hotspots),
+                      shQuote(sample_selection)))
+
+```
+
+#ED7d
+```{r}
+
+script_path <- paste0(getwd(),"/script/004_plot_CNV_karyotype_from_filtered_GRCh37.R")
+
+filtered_input  <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_filtered_data_GRCh37_corrected_conf75_chrX2filtered.csv")
+
+output_pdf <- file.path(output_dir, "/CNV_ED7d_karyotype_plot.pdf")
+
+# --- Selezione campioni da visualizzare nei grafici -----------------------
+# Lascia vuoto ("") per mostrare TUTTI i campioni presenti nel CSV filtrato
+# combinato (comportamento di default, invariato). Per mostrarne solo alcuni,
+# elenca i sample_id e/o sample_name separati da virgola (si possono
+# mischiare i due tipi, ognuno viene cercato in entrambe le colonne):
+#   sample_selection <- "W1.6,K1.7"
+# In alternativa si puo' passare il path di un file di testo con un valore
+# per riga. Se un valore non corrisponde a nessun campione, lo script si
+# ferma con un errore che elenca i sample_id/sample_name disponibili, cosi'
+# un refuso non produce un grafico sbagliato/vuoto senza accorgersene.
+metadata_plot <- read.csv2(
+  file.path(getwd(), "scratch", "input_files",
+            "CNV_sample_metadata.csv"),
+  stringsAsFactors = FALSE
+)
+
+# Usa i Sample_ID del vettore cell_line creato sopra
+#NB. se vuoi degli ID diversi ne puoi usare altri e selezionarli
+selected_ids <- setdiff(names(ED7d), "default")
+
+stopifnot(
+  length(selected_ids) > 0,
+  all(selected_ids %in% metadata_plot$Sample_ID)
+)
+
+# Recupera gli identificativi esatti presenti nell'XML
+sample_selection <- paste(
+  unique(metadata_plot$sample_id[
+    metadata_plot$Sample_ID %in% selected_ids
+  ]),
+  collapse = ","
+)
+
+system2("Rscript", c(shQuote(script_path),
+                      shQuote(filtered_input),
+                      shQuote(output_pdf),
+                      shQuote(sample_selection)))
+
+
+#final graph with hotspots
+
+
+script_path <- paste0(getwd(),"/script/005_plot_CNV_karyotype_with_hotspots_GRCh37.R")
+
+# Prodotto dallo script 3 nello stesso output_dir: le 20 regioni hotspot GRCh37
+# usate per la classificazione, riesportate come tabella di riferimento.
+hotspot_reference_input <- file.path(getwd(), "scratch", "input_files", "cnvPartition_3.2.0_hotspot_reference_GRCh37.csv")
+
+output_pdf_hotspots <- file.path(output_dir, "/CNV_ED7d_karyotype_plot_with_hotspots.pdf")
 
 # Stessa selezione campioni del grafico precedente (le bande hotspot restano
 # sempre disegnate per intero, indipendentemente da quali campioni sono
