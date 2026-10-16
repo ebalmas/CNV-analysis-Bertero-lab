@@ -103,7 +103,7 @@ if (!identical(genome_build, "GRCh37")) {
 # generated when male X hemizygosity is not handled correctly upstream.
 # Set FALSE only if analysing sex-aware cnvPartition output in which male chrX CN=2
 # has been explicitly validated as a true copy-number gain.
-exclude_male_chrX_value2_artifact <- TRUE
+exclude_male_chrX_value2_artifact <- FALSE
 
 warnings_seen <- character(0)
 record_warning <- function(message_text) {
